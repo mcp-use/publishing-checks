@@ -49,6 +49,9 @@ outputs:
   ready-for-claude:
     description: Whether the server is ready for Claude (true, false, or empty when unknown).
     value: ${{ steps.checklist.outputs.ready-for-claude }}
+  score:
+    description: Checks score out of 100, as shown on the dashboard.
+    value: ${{ steps.checklist.outputs.score }}
   dashboard-url:
     description: Link to the checklist in the Manufact dashboard.
     value: ${{ steps.checklist.outputs.dashboard-url }}
@@ -82,16 +85,15 @@ runs:
         set +e -uo pipefail
         cli=(npx --yes "$CLI_PACKAGE")
         result="$RUNNER_TEMP/mcp-use-checklist.json"
-        report="$RUNNER_TEMP/mcp-use-checklist.txt"
         errors="$RUNNER_TEMP/mcp-use-checklist.err"
         markdown="$RUNNER_TEMP/mcp-use-checklist.md"
-        rm -f "$result"
-        args=(checklist run --path "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result")
+        rm -f "$result" "$markdown.body"
+        args=(checklist run --path "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result" --markdown-file "$markdown.body")
         if [ -n "$INPUT_BRANCH" ]; then args+=(--branch "$INPUT_BRANCH"); fi
 
-        # The readable report goes to the log (and $report); the JSON result goes to $result.
-        "${cli[@]}" "${args[@]}" 2> "$errors" | tee "$report"
-        code=${PIPESTATUS[0]}
+        # The readable report goes to the log; JSON and Markdown go to files.
+        "${cli[@]}" "${args[@]}" 2> "$errors"
+        code=$?
         cat "$errors" >&2
 
         run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
@@ -118,43 +120,14 @@ runs:
           {
             echo "run-id=$run_id"
             echo "status=$(jq -r '.status' "$result")"
+            echo "score=$(jq -r '.score // empty' "$result")"
             echo "ready-for-chatgpt=$(jq -r '.isReadyForChatgpt | if . == null then empty else . end' "$result")"
             echo "ready-for-claude=$(jq -r '.isReadyForClaudeai | if . == null then empty else . end' "$result")"
             echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
           } >> "$GITHUB_OUTPUT"
 
-          open=$(jq '[.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] | length' "$result")
-          if [ "$code" -ne 0 ]; then title="❌ Publishing checklist failed"
-          elif [ "$open" -gt 0 ]; then title="⚠️ Publishing checklist: $open check(s) need attention"
-          else title="✅ Publishing checklist passed"; fi
-          # Keep the comment under GitHub's 65,536-character limit.
-          full=$(head -c 50000 "$report")
-          [ "$(wc -c < "$report")" -gt 50000 ] && full="$full"$'\n… (truncated; see the job log or dashboard)'
-
-          {
-            echo "$marker"
-            echo "## $title"
-            echo
-            jq -r --arg server "$server_label" --arg failon "$INPUT_FAIL_ON" '
-              def ready(v): if v == true then "✅ Ready" elif v == false then "❌ Not ready" else "—" end;
-              "Server `\($server)` · Branch `\(.gitBranch // "production")` · Status `\(.status)` · fail-on `\($failon)`\n",
-              "| ChatGPT | Claude |\n| --- | --- |\n| \(ready(.isReadyForChatgpt)) | \(ready(.isReadyForClaudeai)) |\n",
-              ([.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] as $open
-               | if ($open | length) == 0 then "All checks passed."
-                 else "| Check | Status | Message |\n| --- | --- | --- |\n"
-                   + ($open | map("| \(.checkName) | \(.status) | \((.message // "") | gsub("\n"; " ") | gsub("\\|"; "\\|")) |") | join("\n"))
-                 end)' "$result"
-            echo
-            echo "<details><summary>Full report</summary>"
-            echo
-            echo '````text'
-            printf '%s\n' "$full"
-            echo '````'
-            echo
-            echo "</details>"
-            echo
-            echo "[Open in dashboard]($(jq -r '.dashboardUrl' "$result")) · Run \`$run_id\`"
-          } > "$markdown"
+          # The CLI renders the report like the dashboard; add our comment marker.
+          { echo "$marker"; cat "$markdown.body"; } > "$markdown"
           if [ "$code" -ne 0 ]; then
             echo "::error title=Publishing checklist::Checklist did not pass (fail-on: $INPUT_FAIL_ON). See the report above."
           fi

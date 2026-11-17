@@ -79,18 +79,14 @@ On pull requests, the checklist runs against the deployment for the pull request
 | --- | --- |
 | `run-id` | Checklist run ID |
 | `status` | Final run status, for example `completed` or `failed` |
+| `score` | Checks score out of 100, as shown on the dashboard |
 | `ready-for-chatgpt` | `true` or `false`; empty when unknown |
 | `ready-for-claude` | `true` or `false`; empty when unknown |
 | `dashboard-url` | Link to the checklist in the Manufact dashboard |
 
 ## Pull request comment
 
-On `pull_request` events, the action comments on the pull request with:
-- whether the checklist passed
-- readiness for ChatGPT and Claude
-- a table of the checks that didn't pass
-- the full report, under a "Full report" toggle
-- a link to the dashboard
+On `pull_request` events, the action comments the report on the pull request, laid out like the checklist page in the Manufact dashboard: the checks score, the last run's results and client readiness, the policy-review banner, and one section per category. Sections with issues start expanded; failing checks show their severity, the affected clients, a policy link where there is one, and how to fix them.
 
 There's one comment per server. Later runs update it rather than adding a new comment. If the checklist can't run at all (for example, the token is wrong), the comment shows the error instead.
 
