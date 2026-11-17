@@ -1,0 +1,90 @@
+# Runs the action against the Manufact MCP server on Manufact Cloud.
+# The server is external (no preview deployments), so every case checks production.
+# Expectations assume the server still has failing checks; update them if it passes.
+name: e2e
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+env:
+  SERVER: bold-steel-y1vjy
+  ORG: 3747c0f6-e8c3-4498-8531-06bc0ac0b6ea
+
+jobs:
+  fail-on-failed:
+    name: fail-on failed fails the step
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: checklist
+        uses: ./
+        continue-on-error: true
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: ${{ env.SERVER }}
+          org: ${{ env.ORG }}
+          branch: ""
+      - name: Assert
+        env:
+          OUTCOME: ${{ steps.checklist.outcome }}
+          RUN_ID: ${{ steps.checklist.outputs.run-id }}
+          STATUS: ${{ steps.checklist.outputs.status }}
+        run: |
+          echo "outcome=$OUTCOME run-id=$RUN_ID status=$STATUS"
+          test "$OUTCOME" = failure
+          test -n "$RUN_ID"
+          test "$STATUS" = completed
+
+  fail-on-none:
+    name: fail-on none passes and sets outputs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: checklist
+        uses: ./
+        continue-on-error: true
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: ${{ env.SERVER }}
+          org: ${{ env.ORG }}
+          branch: ""
+          fail-on: none
+      - name: Assert
+        env:
+          OUTCOME: ${{ steps.checklist.outcome }}
+          RUN_ID: ${{ steps.checklist.outputs.run-id }}
+          STATUS: ${{ steps.checklist.outputs.status }}
+          CHATGPT: ${{ steps.checklist.outputs.ready-for-chatgpt }}
+          CLAUDE: ${{ steps.checklist.outputs.ready-for-claude }}
+          DASHBOARD: ${{ steps.checklist.outputs.dashboard-url }}
+        run: |
+          echo "outcome=$OUTCOME run-id=$RUN_ID status=$STATUS chatgpt=$CHATGPT claude=$CLAUDE dashboard=$DASHBOARD"
+          test "$OUTCOME" = success
+          test -n "$RUN_ID"
+          test "$STATUS" = completed
+          [[ "$CHATGPT" =~ ^(true|false)$ ]]
+          [[ "$CLAUDE" =~ ^(true|false)$ ]]
+          [[ "$DASHBOARD" == https://* ]]
+
+  bad-token:
+    name: a bad token fails without a run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: checklist
+        uses: ./
+        continue-on-error: true
+        with:
+          token: not-a-real-token
+          server: ${{ env.SERVER }}
+          org: ${{ env.ORG }}
+          branch: ""
+      - name: Assert
+        env:
+          OUTCOME: ${{ steps.checklist.outcome }}
+          RUN_ID: ${{ steps.checklist.outputs.run-id }}
+        run: |
+          echo "outcome=$OUTCOME run-id=$RUN_ID"
+          test "$OUTCOME" = failure
+          test -z "$RUN_ID"

@@ -1,0 +1,117 @@
+name: Manufact publishing checks
+description: Run the Manufact Cloud publishing checklist for an MCP server and fail the job when checks fail.
+author: manufact
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  token:
+    description: Manufact Cloud API key. Store it as a repository secret.
+    required: true
+  server:
+    description: Server ID or slug. Defaults to the project link in `path`, if one is committed.
+    required: false
+  org:
+    description: Organization ID or slug. Only needed when the key can reach several organizations.
+    required: false
+  branch:
+    description: Preview branch whose deployment is checked. Defaults to the pull request head branch, and to production on other events. Set it to an empty string to always check production.
+    required: false
+    default: ${{ github.head_ref }}
+  fail-on:
+    description: "When to fail the job: none, failed or warnings."
+    required: false
+    default: failed
+  path:
+    description: Project directory, used to find a committed project link.
+    required: false
+    default: .
+
+outputs:
+  run-id:
+    description: Checklist run ID.
+    value: ${{ steps.checklist.outputs.run-id }}
+  status:
+    description: Final run status, for example completed or failed.
+    value: ${{ steps.checklist.outputs.status }}
+  ready-for-chatgpt:
+    description: Whether the server is ready for ChatGPT (true, false, or empty when unknown).
+    value: ${{ steps.checklist.outputs.ready-for-chatgpt }}
+  ready-for-claude:
+    description: Whether the server is ready for Claude (true, false, or empty when unknown).
+    value: ${{ steps.checklist.outputs.ready-for-claude }}
+  dashboard-url:
+    description: Link to the checklist in the Manufact dashboard.
+    value: ${{ steps.checklist.outputs.dashboard-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Run publishing checklist
+      id: checklist
+      shell: bash
+      env:
+        MANUFACT_TOKEN: ${{ inputs.token }}
+        MANUFACT_SERVER: ${{ inputs.server }}
+        MANUFACT_ORG: ${{ inputs.org }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_PATH: ${{ inputs.path }}
+        # Each release of this action pins the CLI it was tested with.
+        # TODO before v1: replace the PR preview with "@mcp-use/cli@5.2.0".
+        CLI_PACKAGE: "https://pkg.pr.new/mcp-use/mcp-use/@mcp-use/cli@3113"
+        NO_COLOR: "1"
+      run: |
+        set -uo pipefail
+        cli=(npx --yes "$CLI_PACKAGE")
+        args=(checklist run --path "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --json)
+        if [ -n "$INPUT_BRANCH" ]; then args+=(--branch "$INPUT_BRANCH"); fi
+
+        result="$RUNNER_TEMP/mcp-use-checklist.json"
+        "${cli[@]}" "${args[@]}" > "$result"
+        code=$?
+
+        run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
+        if [ -z "$run_id" ]; then
+          # The run never started (bad token, unknown server, usage error...).
+          message=$(jq -r '.error.message // empty' "$result" 2>/dev/null || true)
+          echo "::error title=Publishing checklist::${message:-mcp-use checklist run exited with code $code}"
+          exit $(( code == 0 ? 1 : code ))
+        fi
+
+        {
+          echo "run-id=$run_id"
+          echo "status=$(jq -r '.status' "$result")"
+          echo "ready-for-chatgpt=$(jq -r '.isReadyForChatgpt | if . == null then empty else . end' "$result")"
+          echo "ready-for-claude=$(jq -r '.isReadyForClaudeai | if . == null then empty else . end' "$result")"
+          echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
+        } >> "$GITHUB_OUTPUT"
+
+        # Print the full human report to the log.
+        "${cli[@]}" checklist get "$run_id" --path "$INPUT_PATH" --verbose || true
+
+        {
+          echo "## Publishing checklist"
+          echo
+          echo "**Status:** $(jq -r '.status' "$result") · **Branch:** $(jq -r '.gitBranch // "default"' "$result")"
+          echo
+          jq -r '
+            [.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] as $open
+            | if ($open | length) == 0 then "All checks passed."
+              else "| Check | Status | Message |\n| --- | --- | --- |\n"
+                + ($open | map("| \(.checkName) | \(.status) | \((.message // "") | gsub("\n"; " ") | gsub("\\|"; "\\|")) |") | join("\n"))
+              end' "$result"
+          echo
+          echo "[Open in dashboard]($(jq -r '.dashboardUrl' "$result"))"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [ "$code" -ne 0 ]; then
+          echo "::error title=Publishing checklist::Checklist did not pass (fail-on: $INPUT_FAIL_ON). See the report above."
+        fi
+        exit $code

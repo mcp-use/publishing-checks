@@ -1,0 +1,86 @@
+# Manufact publishing checks
+
+Run the Manufact Cloud publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
+
+The action runs [`mcp-use checklist run`](https://mcp-use.com/docs/typescript/api-reference/cli-reference#checklist-run) from `@mcp-use/cli`. It checks a server that is already deployed on Manufact Cloud. It does not build or deploy anything.
+
+> This is not the Manufact GitHub App. The app runs the checklist from Manufact Cloud after each deployment. Use this action when you want the result as a step in your own workflow, for example to gate a release job.
+
+## Usage
+
+```yaml
+name: Publishing checklist
+
+on:
+  pull_request:
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mcp-use/publishing-checks@v1
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: weather
+```
+
+On pull requests, the checklist runs against the deployment for the pull request's head branch. Run it after that branch has deployed. If your deploy runs in the same workflow, put this step after it. On other events, such as a push to `main`, it checks production.
+
+### Fail on warnings too
+
+```yaml
+      - uses: mcp-use/publishing-checks@v1
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: weather
+          fail-on: warnings
+```
+
+### Use the result in later steps
+
+```yaml
+      - id: checklist
+        uses: mcp-use/publishing-checks@v1
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: weather
+          fail-on: none
+      - if: steps.checklist.outputs.ready-for-chatgpt == 'true'
+        run: echo "Ready for ChatGPT"
+```
+
+## Inputs
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `token` | — | Manufact Cloud API key. Required. Store it as a secret. |
+| `server` | project link | Server ID or slug. Optional if `path` contains a committed project link. |
+| `org` | — | Organization ID or slug. Only needed when the key can reach several organizations. |
+| `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
+| `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |
+| `path` | `.` | Project directory. |
+
+`fail-on` levels:
+
+| Level | The job fails when |
+| --- | --- |
+| `none` | The checklist can't run at all (for example, a bad token) |
+| `failed` | A check fails, or the run itself fails or is cancelled |
+| `warnings` | Same as `failed`, or a check reports a warning |
+
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `run-id` | Checklist run ID |
+| `status` | Final run status, for example `completed` or `failed` |
+| `ready-for-chatgpt` | `true` or `false`; empty when unknown |
+| `ready-for-claude` | `true` or `false`; empty when unknown |
+| `dashboard-url` | Link to the checklist in the Manufact dashboard |
+
+The action also prints the full report to the job log and adds a summary of failing checks to the job summary page.
+
+## Requirements
+
+- A runner with `jq`. GitHub-hosted runners have it. The action installs Node.js 22 itself.
+Each release of this action pins the `@mcp-use/cli` version it was tested with.
