@@ -68,7 +68,8 @@ runs:
         CLI_PACKAGE: "https://pkg.pr.new/mcp-use/mcp-use/@mcp-use/cli@3113"
         NO_COLOR: "1"
       run: |
-        set -uo pipefail
+        # GitHub runs bash with -e; turn it off so a failing CLI still reports.
+        set +e -uo pipefail
         cli=(npx --yes "$CLI_PACKAGE")
         args=(checklist run --path "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --json)
         if [ -n "$INPUT_BRANCH" ]; then args+=(--branch "$INPUT_BRANCH"); fi

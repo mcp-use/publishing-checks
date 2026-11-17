@@ -38,6 +38,9 @@ jobs:
 
   fail-on-none:
     name: fail-on none passes and sets outputs
+    # Run after the other real checklist so the two don't overlap on one server.
+    needs: fail-on-failed
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
