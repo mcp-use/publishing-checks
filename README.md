@@ -14,6 +14,9 @@ name: Publishing checklist
 on:
   pull_request:
 
+permissions:
+  pull-requests: write # to comment the report on the pull request
+
 jobs:
   checklist:
     runs-on: ubuntu-latest
@@ -59,6 +62,8 @@ On pull requests, the checklist runs against the deployment for the pull request
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
 | `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |
 | `path` | `.` | Project directory. |
+| `comment` | `true` | On pull requests, comment the full report. Set `false` to turn it off. |
+| `github-token` | `github.token` | Token used to post the comment. |
 
 `fail-on` levels:
 
@@ -78,7 +83,20 @@ On pull requests, the checklist runs against the deployment for the pull request
 | `ready-for-claude` | `true` or `false`; empty when unknown |
 | `dashboard-url` | Link to the checklist in the Manufact dashboard |
 
-The action also prints the full report to the job log and adds a summary of failing checks to the job summary page.
+## Pull request comment
+
+On `pull_request` events, the action comments on the pull request with:
+- whether the checklist passed
+- readiness for ChatGPT and Claude
+- a table of the checks that didn't pass
+- the full report, under a "Full report" toggle
+- a link to the dashboard
+
+There's one comment per server. Later runs update it rather than adding a new comment. If the checklist can't run at all (for example, the token is wrong), the comment shows the error instead.
+
+Commenting needs the job to have `pull-requests: write`. Without it, the action logs a warning and carries on; the checklist result is unaffected. Pull requests from forks get a read-only token, so there's no comment for those.
+
+The full report also goes to the job log, and the same summary is added to the job summary page.
 
 ## Requirements
 

@@ -27,6 +27,14 @@ inputs:
     description: Project directory, used to find a committed project link.
     required: false
     default: .
+  comment:
+    description: "On pull requests, post the full report as a comment and update it on later runs. Needs `pull-requests: write`."
+    required: false
+    default: "true"
+  github-token:
+    description: Token used to post the pull request comment.
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   run-id:
@@ -63,6 +71,8 @@ runs:
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_PATH: ${{ inputs.path }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        GH_TOKEN: ${{ inputs.github-token }}
         # Each release of this action pins the CLI it was tested with.
         # TODO before v1: replace the PR preview with "@mcp-use/cli@5.2.0".
         CLI_PACKAGE: "https://pkg.pr.new/mcp-use/mcp-use/@mcp-use/cli@3113"
@@ -72,48 +82,97 @@ runs:
         set +e -uo pipefail
         cli=(npx --yes "$CLI_PACKAGE")
         result="$RUNNER_TEMP/mcp-use-checklist.json"
+        report="$RUNNER_TEMP/mcp-use-checklist.txt"
         errors="$RUNNER_TEMP/mcp-use-checklist.err"
+        markdown="$RUNNER_TEMP/mcp-use-checklist.md"
         rm -f "$result"
         args=(checklist run --path "$INPUT_PATH" --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result")
         if [ -n "$INPUT_BRANCH" ]; then args+=(--branch "$INPUT_BRANCH"); fi
 
-        # The readable report goes to the log; the JSON result goes to $result.
-        "${cli[@]}" "${args[@]}" 2> "$errors"
-        code=$?
+        # The readable report goes to the log (and $report); the JSON result goes to $result.
+        "${cli[@]}" "${args[@]}" 2> "$errors" | tee "$report"
+        code=${PIPESTATUS[0]}
         cat "$errors" >&2
 
         run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
+        server_label="${MANUFACT_SERVER:-linked server}"
+        marker="<!-- manufact-publishing-checks:${MANUFACT_SERVER:-default} -->"
+
         if [ -z "$run_id" ]; then
           # No result (bad token, unknown server, usage error...): use the CLI's error line.
           message=$(grep -v -e '^Running checklist$' -e '^$' "$errors" | head -n 1)
-          echo "::error title=Publishing checklist::${message:-mcp-use checklist run exited with code $code}"
-          exit $(( code == 0 ? 1 : code ))
+          message="${message:-mcp-use checklist run exited with code $code}"
+          echo "::error title=Publishing checklist::$message"
+          {
+            echo "$marker"
+            echo "## ❌ Publishing checklist couldn't run"
+            echo
+            echo "Server \`$server_label\`"
+            echo
+            echo '```text'
+            grep -v '^Running checklist$' "$errors"
+            echo '```'
+          } > "$markdown"
+          [ "$code" -eq 0 ] && code=1
+        else
+          {
+            echo "run-id=$run_id"
+            echo "status=$(jq -r '.status' "$result")"
+            echo "ready-for-chatgpt=$(jq -r '.isReadyForChatgpt | if . == null then empty else . end' "$result")"
+            echo "ready-for-claude=$(jq -r '.isReadyForClaudeai | if . == null then empty else . end' "$result")"
+            echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
+          } >> "$GITHUB_OUTPUT"
+
+          open=$(jq '[.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] | length' "$result")
+          if [ "$code" -ne 0 ]; then title="❌ Publishing checklist failed"
+          elif [ "$open" -gt 0 ]; then title="⚠️ Publishing checklist: $open check(s) need attention"
+          else title="✅ Publishing checklist passed"; fi
+          # Keep the comment under GitHub's 65,536-character limit.
+          full=$(head -c 50000 "$report")
+          [ "$(wc -c < "$report")" -gt 50000 ] && full="$full"$'\n… (truncated; see the job log or dashboard)'
+
+          {
+            echo "$marker"
+            echo "## $title"
+            echo
+            jq -r --arg server "$server_label" --arg failon "$INPUT_FAIL_ON" '
+              def ready(v): if v == true then "✅ Ready" elif v == false then "❌ Not ready" else "—" end;
+              "Server `\($server)` · Branch `\(.gitBranch // "production")` · Status `\(.status)` · fail-on `\($failon)`\n",
+              "| ChatGPT | Claude |\n| --- | --- |\n| \(ready(.isReadyForChatgpt)) | \(ready(.isReadyForClaudeai)) |\n",
+              ([.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] as $open
+               | if ($open | length) == 0 then "All checks passed."
+                 else "| Check | Status | Message |\n| --- | --- | --- |\n"
+                   + ($open | map("| \(.checkName) | \(.status) | \((.message // "") | gsub("\n"; " ") | gsub("\\|"; "\\|")) |") | join("\n"))
+                 end)' "$result"
+            echo
+            echo "<details><summary>Full report</summary>"
+            echo
+            echo '````text'
+            printf '%s\n' "$full"
+            echo '````'
+            echo
+            echo "</details>"
+            echo
+            echo "[Open in dashboard]($(jq -r '.dashboardUrl' "$result")) · Run \`$run_id\`"
+          } > "$markdown"
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Publishing checklist::Checklist did not pass (fail-on: $INPUT_FAIL_ON). See the report above."
+          fi
         fi
 
-        {
-          echo "run-id=$run_id"
-          echo "status=$(jq -r '.status' "$result")"
-          echo "ready-for-chatgpt=$(jq -r '.isReadyForChatgpt | if . == null then empty else . end' "$result")"
-          echo "ready-for-claude=$(jq -r '.isReadyForClaudeai | if . == null then empty else . end' "$result")"
-          echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
-        } >> "$GITHUB_OUTPUT"
+        tail -n +2 "$markdown" >> "$GITHUB_STEP_SUMMARY"
 
-        {
-          echo "## Publishing checklist"
-          echo
-          echo "**Status:** $(jq -r '.status' "$result") · **Branch:** $(jq -r '.gitBranch // "default"' "$result")"
-          echo
-          jq -r '
-            [.checks // [] | .[] | select(.status | test("^(pass|passed|success|skip|skipped|not_applicable)$") | not)] as $open
-            | if ($open | length) == 0 then "All checks passed."
-              else "| Check | Status | Message |\n| --- | --- | --- |\n"
-                + ($open | map("| \(.checkName) | \(.status) | \((.message // "") | gsub("\n"; " ") | gsub("\\|"; "\\|")) |") | join("\n"))
-              end' "$result"
-          echo
-          echo "[Open in dashboard]($(jq -r '.dashboardUrl' "$result"))"
-        } >> "$GITHUB_STEP_SUMMARY"
-
-        if [ "$code" -ne 0 ]; then
-          echo "::error title=Publishing checklist::Checklist did not pass (fail-on: $INPUT_FAIL_ON). See the report above."
+        # Post or update one comment per server on the pull request.
+        pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+        if [ "$INPUT_COMMENT" = "true" ] && [ -n "$pr" ]; then
+          comments="repos/$GITHUB_REPOSITORY/issues"
+          existing=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
+          # Update our earlier comment; post a new one if there's none, or if the
+          # marked comment isn't ours to edit.
+          if ! { [ -n "$existing" ] && gh api -X PATCH "$comments/comments/$existing" -F body=@"$markdown" > /dev/null; } &&
+             ! gh api -X POST "$comments/$pr/comments" -F body=@"$markdown" > /dev/null; then
+            echo "::warning title=Publishing checklist::Couldn't comment on the pull request. Grant the job 'pull-requests: write', or set comment: false."
+          fi
         fi
+
         exit $code

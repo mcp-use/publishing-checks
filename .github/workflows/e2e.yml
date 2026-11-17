@@ -7,6 +7,10 @@ on:
   workflow_dispatch:
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 env:
   SERVER: bold-steel-y1vjy
   ORG: 3747c0f6-e8c3-4498-8531-06bc0ac0b6ea
@@ -53,6 +57,7 @@ jobs:
           org: ${{ env.ORG }}
           branch: ""
           fail-on: none
+          comment: false
       - name: Assert
         env:
           OUTCOME: ${{ steps.checklist.outcome }}
@@ -83,6 +88,7 @@ jobs:
           server: ${{ env.SERVER }}
           org: ${{ env.ORG }}
           branch: ""
+          comment: false
       - name: Assert
         env:
           OUTCOME: ${{ steps.checklist.outcome }}
