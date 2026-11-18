@@ -58,7 +58,7 @@ Open your server in the Manufact dashboard. The server ID is the UUID after `/se
 
 ```
 https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/overview
-                                         └──────────── server ID ────────────┘
+                                         └─────────── server ID ────────────┘
 ```
 
 ## Inputs
