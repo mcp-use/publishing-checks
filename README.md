@@ -70,8 +70,10 @@ On pull requests, the checklist runs against the deployment for the pull request
 | Level | The job fails when |
 | --- | --- |
 | `none` | The checklist can't run at all (for example, a bad token) |
-| `failed` | A check fails, or the run itself fails or is cancelled |
-| `warnings` | Same as `failed`, or a check reports a warning |
+| `failed` | A publishing check fails, or the run itself fails or is cancelled |
+| `warnings` | Same as `failed`, or a check reports a warning or policy concern |
+
+Policy concerns count as warnings, as on the dashboard: they may need store review but aren't failed publishing checks.
 
 ## Outputs
 
