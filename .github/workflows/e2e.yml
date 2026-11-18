@@ -13,7 +13,6 @@ permissions:
 
 env:
   SERVER: bold-steel-y1vjy
-  ORG: 3747c0f6-e8c3-4498-8531-06bc0ac0b6ea
 
 jobs:
   fail-on-failed:
@@ -28,7 +27,6 @@ jobs:
         with:
           token: ${{ secrets.MANUFACT_TOKEN }}
           server: ${{ env.SERVER }}
-          org: ${{ env.ORG }}
           branch: ""
           fail-on: warnings
       - name: Assert
@@ -56,7 +54,6 @@ jobs:
         with:
           token: ${{ secrets.MANUFACT_TOKEN }}
           server: ${{ env.SERVER }}
-          org: ${{ env.ORG }}
           branch: ""
           fail-on: none
           comment: false
@@ -88,7 +85,6 @@ jobs:
         with:
           token: not-a-real-token
           server: ${{ env.SERVER }}
-          org: ${{ env.ORG }}
           branch: ""
           comment: false
       - name: Assert

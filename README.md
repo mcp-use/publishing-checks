@@ -56,12 +56,10 @@ On pull requests, the checklist runs against the deployment for the pull request
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `token` | — | Manufact Cloud API key. Required. Store it as a secret. |
-| `server` | project link | Server ID or slug. Optional if `path` contains a committed project link. |
-| `org` | — | Organization ID or slug. Only needed when the key can reach several organizations. |
+| `token` | — | Required. Manufact Cloud API key, scoped to the server's organization. Store it as a secret. |
+| `server` | — | Required. Server slug (for example `bold-steel-y1vjy`) or server ID, as shown in the Manufact dashboard. |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
 | `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |
-| `path` | `.` | Project directory. |
 | `comment` | `true` | On pull requests, comment the full report. Set `false` to turn it off. |
 | `github-token` | `github.token` | Token used to post the comment. |
 
