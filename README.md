@@ -22,9 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: mcp-use/publishing-checks@v1
-        env:
-          MANUFACT_TOKEN: ${{ secrets.MANUFACT_TOKEN }}
         with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
 ```
 
@@ -66,7 +65,7 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `token` | `MANUFACT_TOKEN` env | Manufact Cloud API key, scoped to the server's organization. Store it as a secret and pass it here, or set `MANUFACT_TOKEN` in the step's `env:`. |
+| `token` | — | Required. Manufact Cloud API key, scoped to the server's organization. Store it as a secret. |
 | `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
 | `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |

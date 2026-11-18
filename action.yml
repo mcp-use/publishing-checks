@@ -7,8 +7,8 @@ branding:
 
 inputs:
   token:
-    description: Manufact Cloud API key. Store it as a repository secret. Optional if the step sets the MANUFACT_TOKEN environment variable instead.
-    required: false
+    description: Manufact Cloud API key. Store it as a repository secret.
+    required: true
   server:
     description: Server ID, the UUID in the server's dashboard URL (manufact.com/cloud/<org>/servers/<server-id>/...).
     required: true
@@ -61,8 +61,7 @@ runs:
       id: checklist
       shell: bash
       env:
-        # MANUFACT_TOKEN is left out so a value set in the step's env: passes through.
-        INPUT_TOKEN: ${{ inputs.token }}
+        MANUFACT_TOKEN: ${{ inputs.token }}
         MANUFACT_SERVER: ${{ inputs.server }}
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
@@ -74,11 +73,6 @@ runs:
       run: |
         # GitHub runs bash with -e; turn it off so a failing CLI still reports.
         set +e -uo pipefail
-        export MANUFACT_TOKEN="${INPUT_TOKEN:-${MANUFACT_TOKEN:-}}"
-        if [ -z "$MANUFACT_TOKEN" ]; then
-          echo "::error title=Publishing checklist::Set a Manufact API key: pass 'token' or set MANUFACT_TOKEN in the step's env."
-          exit 1
-        fi
         cli=(npx --yes "$CLI_PACKAGE")
         result="$RUNNER_TEMP/mcp-use-checklist.json"
         errors="$RUNNER_TEMP/mcp-use-checklist.err"
