@@ -10,7 +10,7 @@ inputs:
     description: Manufact Cloud API key. Store it as a repository secret.
     required: true
   server:
-    description: Server slug (for example `bold-steel-y1vjy`) or server ID, as shown in the Manufact dashboard.
+    description: Server ID, the UUID in the server's dashboard URL (manufact.com/cloud/<org>/servers/<server-id>/...).
     required: true
   branch:
     description: Preview branch whose deployment is checked. Defaults to the pull request head branch, and to production on other events. Set it to an empty string to always check production.

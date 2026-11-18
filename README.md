@@ -24,7 +24,7 @@ jobs:
       - uses: mcp-use/publishing-checks@v1
         with:
           token: ${{ secrets.MANUFACT_TOKEN }}
-          server: weather
+          server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
 ```
 
 On pull requests, the checklist runs against the deployment for the pull request's head branch. Run it after that branch has deployed. If your deploy runs in the same workflow, put this step after it. On other events, such as a push to `main`, it checks production.
@@ -35,7 +35,7 @@ On pull requests, the checklist runs against the deployment for the pull request
       - uses: mcp-use/publishing-checks@v1
         with:
           token: ${{ secrets.MANUFACT_TOKEN }}
-          server: weather
+          server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: warnings
 ```
 
@@ -46,10 +46,19 @@ On pull requests, the checklist runs against the deployment for the pull request
         uses: mcp-use/publishing-checks@v1
         with:
           token: ${{ secrets.MANUFACT_TOKEN }}
-          server: weather
+          server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: none
       - if: steps.checklist.outputs.ready-for-chatgpt == 'true'
         run: echo "Ready for ChatGPT"
+```
+
+## Find your server ID
+
+Open your server in the Manufact dashboard. The server ID is the UUID after `/servers/` in the URL:
+
+```
+https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/overview
+                                         └──────────── server ID ────────────┘
 ```
 
 ## Inputs
@@ -57,7 +66,7 @@ On pull requests, the checklist runs against the deployment for the pull request
 | Input | Default | Description |
 | --- | --- | --- |
 | `token` | — | Required. Manufact Cloud API key, scoped to the server's organization. Store it as a secret. |
-| `server` | — | Required. Server slug (for example `bold-steel-y1vjy`) or server ID, as shown in the Manufact dashboard. |
+| `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
 | `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |
 | `comment` | `true` | On pull requests, comment the full report. Set `false` to turn it off. |
