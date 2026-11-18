@@ -17,7 +17,8 @@ env:
 
 jobs:
   fail-on-failed:
-    name: fail-on failed fails the step
+    # This server has policy concerns, which count as warnings.
+    name: fail-on warnings fails the step
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,7 @@ jobs:
           server: ${{ env.SERVER }}
           org: ${{ env.ORG }}
           branch: ""
+          fail-on: warnings
       - name: Assert
         env:
           OUTCOME: ${{ steps.checklist.outcome }}
