@@ -24,8 +24,10 @@ jobs:
       - id: checklist
         uses: ./
         continue-on-error: true
+        # Token from the step's env instead of the token input.
+        env:
+          MANUFACT_TOKEN: ${{ secrets.MANUFACT_TOKEN }}
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
           server: ${{ env.SERVER }}
           branch: ""
           fail-on: warnings
