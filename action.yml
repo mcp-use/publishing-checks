@@ -1,5 +1,5 @@
 name: Manufact publishing checks
-description: Run the Manufact Cloud publishing checklist for an MCP server and fail the job when checks fail.
+description: Run the Manufact publishing checklist for an MCP server and fail the job when checks fail.
 author: manufact
 branding:
   icon: check-circle
@@ -7,7 +7,7 @@ branding:
 
 inputs:
   token:
-    description: Manufact Cloud API key. Store it as a repository secret.
+    description: Manufact API key. Store it as a repository secret.
     required: true
   server:
     description: Server ID, the UUID in the server's dashboard URL (manufact.com/cloud/<org>/servers/<server-id>/...).
