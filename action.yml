@@ -1,9 +1,9 @@
-name: Manufact publishing checks
+name: Manufact Publishing Checks
 description: Run the Manufact publishing checklist for an MCP server and fail the job when checks fail.
 author: manufact
 branding:
-  icon: check-circle
-  color: green
+  icon: bell
+  color: black
 
 inputs:
   token:

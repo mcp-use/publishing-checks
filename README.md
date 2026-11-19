@@ -1,4 +1,6 @@
-# Manufact publishing checks
+<img src="https://manufact.com/branding/app-icon-dark.svg" alt="Manufact" width="64" height="64">
+
+# Manufact Publishing Checks
 
 Run the Manufact publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
 
