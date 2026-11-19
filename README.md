@@ -1,10 +1,8 @@
 # Manufact publishing checks
 
-Run the Manufact Cloud publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
+Run the Manufact publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
 
-The action runs [`mcp-use checklist run`](https://mcp-use.com/docs/typescript/api-reference/cli-reference#checklist-run) from `@mcp-use/cli`. It checks a server that is already deployed, on Manufact Cloud or hosted elsewhere and connected to Manufact as an External URL server. It does not build or deploy anything.
-
-> This is not the Manufact GitHub App. The app runs the checklist from Manufact Cloud after each deployment. Use this action when you want the result as a step in your own workflow, for example to gate a release job.
+This action allows you to run Manufact's MCP Publishing Checks in CI/CD. It runs on preview deployments as well as servers connected to Manufact as an External URL server.
 
 ## Usage
 
@@ -97,7 +95,7 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `token` | — | Required. Manufact Cloud API key, scoped to the server's organization. Store it as a secret. |
+| `token` | — | Required. Manufact API key, scoped to the server's organization. Store it as a secret. |
 | `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production. Ignored when `url` or `profile` is set. |
 | `url` | — | External URL servers only. The MCP URL to check instead of the server's, for example a preview deployment. |
