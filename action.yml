@@ -1,5 +1,5 @@
 name: Manufact publishing checks
-description: Run the Manufact Cloud publishing checklist for an MCP server and fail the job when checks fail.
+description: Run the Manufact publishing checklist for an MCP server and fail the job when checks fail.
 author: manufact
 branding:
   icon: check-circle
@@ -7,15 +7,23 @@ branding:
 
 inputs:
   token:
-    description: Manufact Cloud API key. Store it as a repository secret.
+    description: Manufact API key. Store it as a repository secret.
     required: true
   server:
     description: Server ID, the UUID in the server's dashboard URL (manufact.com/cloud/<org>/servers/<server-id>/...).
     required: true
   branch:
-    description: Preview branch whose deployment is checked. Defaults to the pull request head branch, and to production on other events. Set it to an empty string to always check production.
+    description: Preview branch whose deployment is checked. Defaults to the pull request head branch, and to production on other events. Set it to an empty string to always check production. Ignored when url or profile is set.
     required: false
     default: ${{ github.head_ref }}
+  url:
+    description: External URL servers only. The MCP URL to check instead of the server's, such as a preview deployment. When set, branch is ignored.
+    required: false
+    default: ""
+  profile:
+    description: External URL servers only. The ID of the profile to authenticate with instead of the server's. When set, branch is ignored.
+    required: false
+    default: ""
   fail-on:
     description: "When to fail the job: none, failed or warnings."
     required: false
@@ -64,11 +72,13 @@ runs:
         MANUFACT_TOKEN: ${{ inputs.token }}
         MANUFACT_SERVER: ${{ inputs.server }}
         INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_PROFILE: ${{ inputs.profile }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_COMMENT: ${{ inputs.comment }}
         GH_TOKEN: ${{ inputs.github-token }}
         # Each release of this action pins the CLI it was tested with.
-        CLI_PACKAGE: "@mcp-use/cli@5.2.0"
+        CLI_PACKAGE: "@mcp-use/cli@5.3.0"
         NO_COLOR: "1"
       run: |
         # GitHub runs bash with -e; turn it off so a failing CLI still reports.
@@ -79,7 +89,13 @@ runs:
         markdown="$RUNNER_TEMP/mcp-use-checklist.md"
         rm -f "$result" "$markdown.body"
         args=(checklist run --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result" --markdown-file "$markdown.body")
-        if [ -n "$INPUT_BRANCH" ]; then args+=(--branch "$INPUT_BRANCH"); fi
+        # External URL servers have no branches: url and profile replace branch.
+        if [ -n "$INPUT_URL" ] || [ -n "$INPUT_PROFILE" ]; then
+          if [ -n "$INPUT_URL" ]; then args+=(--url "$INPUT_URL"); fi
+          if [ -n "$INPUT_PROFILE" ]; then args+=(--profile "$INPUT_PROFILE"); fi
+        elif [ -n "$INPUT_BRANCH" ]; then
+          args+=(--branch "$INPUT_BRANCH")
+        fi
 
         # The readable report goes to the log; JSON and Markdown go to files.
         "${cli[@]}" "${args[@]}" 2> "$errors"
@@ -117,7 +133,14 @@ runs:
           } >> "$GITHUB_OUTPUT"
 
           # The CLI renders the report like the dashboard; add our comment marker.
-          { echo "$marker"; cat "$markdown.body"; } > "$markdown"
+          # Name the commit that was checked: the deployment's, else the pull request head's, else the workflow's.
+          commit=$(jq -r '.deployment.sha // .pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+          commit="${commit:-$GITHUB_SHA}"
+          { echo "$marker"; awk -v line="Commit \`${commit:0:7}\`" '
+              { print }
+              /^Checked `/ && !done { print ""; print line; done = 1 }
+              END { if (!done) { print ""; print line } }
+            ' "$markdown.body"; } > "$markdown"
           if [ "$code" -ne 0 ]; then
             echo "::error title=Publishing checklist::Checklist did not pass (fail-on: $INPUT_FAIL_ON). See the report above."
           fi
@@ -127,6 +150,13 @@ runs:
 
         # Post or update one comment per server on the pull request.
         pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+        # After a deployment there is no pull request in the event: find the open one for its commit.
+        if [ -z "$pr" ] && [ "$GITHUB_EVENT_NAME" = "deployment_status" ]; then
+          sha=$(jq -r '.deployment.sha // empty' "$GITHUB_EVENT_PATH")
+          if [ -n "$sha" ]; then
+            pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null)
+          fi
+        fi
         if [ "$INPUT_COMMENT" = "true" ] && [ -n "$pr" ]; then
           comments="repos/$GITHUB_REPOSITORY/issues"
           existing=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
