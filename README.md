@@ -2,7 +2,7 @@
 
 Run the Manufact Cloud publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
 
-The action runs [`mcp-use checklist run`](https://mcp-use.com/docs/typescript/api-reference/cli-reference#checklist-run) from `@mcp-use/cli`. It checks a server that is already deployed on Manufact Cloud. It does not build or deploy anything.
+The action runs [`mcp-use checklist run`](https://mcp-use.com/docs/typescript/api-reference/cli-reference#checklist-run) from `@mcp-use/cli`. It checks a server that is already deployed, on Manufact Cloud or hosted elsewhere and connected to Manufact as an External URL server. It does not build or deploy anything.
 
 > This is not the Manufact GitHub App. The app runs the checklist from Manufact Cloud after each deployment. Use this action when you want the result as a step in your own workflow, for example to gate a release job.
 
@@ -52,6 +52,38 @@ On pull requests, the checklist runs against the deployment for the pull request
         run: echo "Ready for ChatGPT"
 ```
 
+### External URL servers: check each preview deployment
+
+If your server is hosted elsewhere (for example on Vercel) and connected to Manufact as an External URL server, run the checklist after each preview deployment with `url` set to that deployment's MCP URL:
+
+```yaml
+name: Publishing checklist
+
+on:
+  deployment_status:
+
+permissions:
+  pull-requests: write # to comment the report on the pull request
+
+jobs:
+  checklist:
+    # Check finished preview deployments only.
+    if: github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Preview'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mcp-use/publishing-checks@v1
+        with:
+          token: ${{ secrets.MANUFACT_TOKEN }}
+          server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
+          url: ${{ github.event.deployment_status.environment_url }}/mcp
+          profile: 6f1c2a7e-0b5d-4e8a-9c3f-2d4b6a8e1f90 # optional
+```
+
+- `url` is the MCP endpoint to check. The run is filed under the server, and the report shows which URL and commit it checked.
+- `profile` is the [profile](https://docs.manufact.com/dashboard/profiles) to sign in with, when the server needs authentication. Leave it out to use the server's own profile. The profile must be yours or shared with the organization.
+- `deployment_status` events only fire when your host creates GitHub deployments. On Vercel, check that creating GitHub deployments is turned on for the project; it can be off. The action finds the open pull request for the deployed commit and comments there.
+- Your preview deployments must accept the profile's token: they should trust the same authorization server as the profile, and accept a token issued for the MCP resource the profile signed in to.
+
 ## Find your server ID
 
 Open your server in the Manufact dashboard. The server ID is the UUID after `/servers/` in the URL:
@@ -67,7 +99,9 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 | --- | --- | --- |
 | `token` | — | Required. Manufact Cloud API key, scoped to the server's organization. Store it as a secret. |
 | `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
-| `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production, for example for an external server with no preview deployments. |
+| `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production. Ignored when `url` or `profile` is set. |
+| `url` | — | External URL servers only. The MCP URL to check instead of the server's, for example a preview deployment. |
+| `profile` | — | External URL servers only. ID of the profile to sign in with instead of the server's. |
 | `fail-on` | `failed` | `none`, `failed` or `warnings`. See below. |
 | `comment` | `true` | On pull requests, comment the full report. Set `false` to turn it off. |
 | `github-token` | `github.token` | Token used to post the comment. |
@@ -95,7 +129,7 @@ Policy concerns count as warnings, as on the dashboard: they may need store revi
 
 ## Pull request comment
 
-On `pull_request` events, the action comments the report on the pull request, laid out like the checklist page in the Manufact dashboard: the checks score, the last run's results and client readiness, the policy-review banner, and one section per category. Sections with issues start expanded; failing checks show their severity, the affected clients, a policy link where there is one, and how to fix them.
+On `pull_request` events, and on `deployment_status` events for a commit with an open pull request, the action comments the report on the pull request, laid out like the checklist page in the Manufact dashboard: the checks score, the last run's results and client readiness, the policy-review banner, and one section per category. Sections with issues start expanded; failing checks show their severity, the affected clients, a policy link where there is one, and how to fix them.
 
 There's one comment per server. Later runs update it rather than adding a new comment. If the checklist can't run at all (for example, the token is wrong), the comment shows the error instead.
 
@@ -106,4 +140,6 @@ The full report also goes to the job log, and the same summary is added to the j
 ## Requirements
 
 - A runner with `jq`. GitHub-hosted runners have it. The action installs Node.js 22 itself.
+- `url` and `profile` need `@mcp-use/cli` 5.3.0 or later, which this release pins.
+
 Each release of this action pins the `@mcp-use/cli` version it was tested with.
