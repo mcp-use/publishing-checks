@@ -4,7 +4,14 @@
 
 Run the Manufact publishing checklist for your MCP server in GitHub Actions, and fail the job when checks fail.
 
-This action allows you to run Manufact's MCP Publishing Checks in CI/CD. It runs on preview deployments as well as servers connected to Manufact as an External URL server.
+This action allows you to run Manufact's MCP Publishing Checks in CI/CD. 
+
+## Before you start
+
+1. **Create a Manufact account.** [Sign up at manufact.com](https://manufact.com/signup).
+2. **Deploy or connect your MCP server.** [Deploy it from GitHub](https://docs.manufact.com/dashboard/quickstart), or [connect a server you host elsewhere](https://docs.manufact.com/dashboard/connect-existing-server). Note its [server ID](#find-your-server-id).
+3. **Create an API key.** In the Manufact dashboard, open **API Keys** and click **Create key** ([how to create an API key](https://docs.manufact.com/dashboard/api-keys)).
+4. **Store the key as a repository secret.** In your GitHub repository, go to **Settings > Secrets and variables > Actions** and add it as `MANUFACT_TOKEN`.
 
 ## Usage
 
@@ -97,7 +104,7 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `token` | — | Required. Manufact API key, scoped to the server's organization. Store it as a secret. |
+| `token` | — | Required. Manufact API key, scoped to the server's organization. Store it as a secret. See [how to create an API key](https://docs.manufact.com/dashboard/api-keys). |
 | `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production. Ignored when `url` or `profile` is set. |
 | `url` | — | External URL servers only. The MCP URL to check instead of the server's, for example a preview deployment. |
