@@ -6,7 +6,7 @@ branding:
   color: black
 
 inputs:
-  token:
+  api-key:
     description: Manufact API key. Store it as a repository secret.
     required: true
   server:
@@ -69,7 +69,7 @@ runs:
       id: checklist
       shell: bash
       env:
-        MANUFACT_TOKEN: ${{ inputs.token }}
+        MANUFACT_TOKEN: ${{ inputs.api-key }}
         MANUFACT_SERVER: ${{ inputs.server }}
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_URL: ${{ inputs.url }}
@@ -107,7 +107,7 @@ runs:
         marker="<!-- manufact-publishing-checks:$MANUFACT_SERVER -->"
 
         if [ -z "$run_id" ]; then
-          # No result (bad token, unknown server, usage error...): use the CLI's error line.
+          # No result (bad API key, unknown server, usage error...): use the CLI's error line.
           message=$(grep -v -e '^Running checklist$' -e '^$' "$errors" | head -n 1)
           message="${message:-mcp-use checklist run exited with code $code}"
           echo "::error title=Publishing checklist::$message"

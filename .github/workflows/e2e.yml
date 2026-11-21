@@ -25,7 +25,7 @@ jobs:
         uses: ./
         continue-on-error: true
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: ${{ env.SERVER }}
           branch: ""
           fail-on: warnings
@@ -52,7 +52,7 @@ jobs:
         uses: ./
         continue-on-error: true
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: ${{ env.SERVER }}
           branch: ""
           fail-on: none
@@ -74,8 +74,8 @@ jobs:
           [[ "$CLAUDE" =~ ^(true|false)$ ]]
           [[ "$DASHBOARD" == https://* ]]
 
-  bad-token:
-    name: a bad token fails without a run
+  bad-api-key:
+    name: a bad API key fails without a run
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
         uses: ./
         continue-on-error: true
         with:
-          token: not-a-real-token
+          api-key: not-a-real-key
           server: ${{ env.SERVER }}
           branch: ""
           comment: false

@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: mcp-use/publishing-checks@v1
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
 ```
 
@@ -41,7 +41,7 @@ On pull requests, the checklist runs against the deployment for the pull request
 ```yaml
       - uses: mcp-use/publishing-checks@v1
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: warnings
 ```
@@ -52,7 +52,7 @@ On pull requests, the checklist runs against the deployment for the pull request
       - id: checklist
         uses: mcp-use/publishing-checks@v1
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: none
       - if: steps.checklist.outputs.ready-for-chatgpt == 'true'
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: mcp-use/publishing-checks@v1
         with:
-          token: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_TOKEN }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           url: ${{ github.event.deployment_status.environment_url }}/mcp
           profile: 6f1c2a7e-0b5d-4e8a-9c3f-2d4b6a8e1f90 # optional
@@ -104,7 +104,7 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `token` | — | Required. Manufact API key, scoped to the server's organization. Store it as a secret. See [how to create an API key](https://docs.manufact.com/dashboard/api-keys). |
+| `api-key` | — | Required. Manufact API key, scoped to the server's organization. Store it as a secret. See [how to create an API key](https://docs.manufact.com/dashboard/api-keys). |
 | `server` | — | Required. Server ID: the UUID in the server's dashboard URL. See [Find your server ID](#find-your-server-id). |
 | `branch` | PR head branch; production on other events | Preview branch whose deployment is checked. Set `branch: ""` to always check production. Ignored when `url` or `profile` is set. |
 | `url` | — | External URL servers only. The MCP URL to check instead of the server's, for example a preview deployment. |
@@ -117,7 +117,7 @@ https://manufact.com/cloud/<org>/servers/e3b0c442-98fc-4c14-9afb-f4c8996fb924/ov
 
 | Level | The job fails when |
 | --- | --- |
-| `none` | The checklist can't run at all (for example, a bad token) |
+| `none` | The checklist can't run at all (for example, a bad API key) |
 | `failed` | A publishing check fails, or the run itself fails or is cancelled |
 | `warnings` | Same as `failed`, or a check reports a warning or policy concern |
 
@@ -138,7 +138,7 @@ Policy concerns count as warnings, as on the dashboard: they may need store revi
 
 On `pull_request` events, and on `deployment_status` events for a commit with an open pull request, the action comments the report on the pull request, laid out like the checklist page in the Manufact dashboard: the checks score, the last run's results and client readiness, the policy-review banner, and one section per category. Sections with issues start expanded; failing checks show their severity, the affected clients, a policy link where there is one, and how to fix them.
 
-There's one comment per server. Later runs update it rather than adding a new comment. If the checklist can't run at all (for example, the token is wrong), the comment shows the error instead.
+There's one comment per server. Later runs update it rather than adding a new comment. If the checklist can't run at all (for example, the API key is wrong), the comment shows the error instead.
 
 Commenting needs the job to have `pull-requests: write`. Without it, the action logs a warning and carries on; the checklist result is unaffected. Pull requests from forks get a read-only token, so there's no comment for those.
 
