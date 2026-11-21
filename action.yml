@@ -6,7 +6,7 @@ branding:
   color: black
 
 inputs:
-  token:
+  api-key:
     description: Manufact API key. Store it as a repository secret.
     required: true
   server:
@@ -29,7 +29,7 @@ inputs:
     required: false
     default: failed
   comment:
-    description: "On pull requests, post the full report as a comment and update it on later runs. Needs `pull-requests: write`."
+    description: "On pull requests, comment that checks are running, then replace it with the full report. Later runs update the same comment. Needs `pull-requests: write`."
     required: false
     default: "true"
   github-token:
@@ -69,7 +69,7 @@ runs:
       id: checklist
       shell: bash
       env:
-        MANUFACT_TOKEN: ${{ inputs.token }}
+        MANUFACT_TOKEN: ${{ inputs.api-key }}
         MANUFACT_SERVER: ${{ inputs.server }}
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_URL: ${{ inputs.url }}
@@ -88,6 +88,62 @@ runs:
         errors="$RUNNER_TEMP/mcp-use-checklist.err"
         markdown="$RUNNER_TEMP/mcp-use-checklist.md"
         rm -f "$result" "$markdown.body"
+        marker="<!-- manufact-publishing-checks:$MANUFACT_SERVER -->"
+
+        # Name the commit that was checked: the deployment's, else the pull request head's, else the workflow's.
+        commit=$(jq -r '.deployment.sha // .pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+        commit="${commit:-$GITHUB_SHA}"
+        commit_line="Commit: \`${commit:0:7}\`"
+
+        # Find the pull request to comment on.
+        pr=""
+        if [ "$INPUT_COMMENT" = "true" ]; then
+          pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+          # After a deployment there is no pull request in the event: find the open one for its commit.
+          if [ -z "$pr" ] && [ "$GITHUB_EVENT_NAME" = "deployment_status" ]; then
+            sha=$(jq -r '.deployment.sha // empty' "$GITHUB_EVENT_PATH")
+            if [ -n "$sha" ]; then
+              pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null)
+            fi
+          fi
+        fi
+
+        # Post or update one comment per server on the pull request. Failures only warn.
+        comments="repos/$GITHUB_REPOSITORY/issues"
+        comment_id=""
+        comment_warned=""
+        comment_on_pr() {
+          local body=$1 id
+          [ -n "$pr" ] || return 0
+          if [ -z "$comment_id" ]; then
+            comment_id=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
+          fi
+          # Update our earlier comment; post a new one if there's none, or if the
+          # marked comment isn't ours to edit.
+          if [ -n "$comment_id" ] && gh api -X PATCH "$comments/comments/$comment_id" -F body=@"$body" > /dev/null; then
+            return 0
+          fi
+          if id=$(gh api -X POST "$comments/$pr/comments" -F body=@"$body" --jq '.id') && [ -n "$id" ]; then
+            comment_id=$id
+            return 0
+          fi
+          if [ -z "$comment_warned" ]; then
+            echo "::warning title=Publishing checklist::Couldn't comment on the pull request. Grant the job 'pull-requests: write', or set comment: false."
+            comment_warned=1
+          fi
+        }
+
+        # A short comment while there's no report yet: the heading, the commit, a status line and the run link.
+        run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        status_comment() {
+          [ -n "$pr" ] || return 0
+          printf '%s\n## Publishing checks\n\n%s\n\n%s\n\n[View the workflow run](%s)\n' "$marker" "$commit_line" "$1" "$run_url" > "$markdown.running"
+          comment_on_pr "$markdown.running"
+        }
+
+        # Show on the pull request that the checks are running; the report replaces it.
+        status_comment "⏳ Publishing checks running. The report replaces this comment when they finish."
+
         args=(checklist run --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result" --markdown-file "$markdown.body")
         # External URL servers have no branches: url and profile replace branch.
         if [ -n "$INPUT_URL" ] || [ -n "$INPUT_PROFILE" ]; then
@@ -98,24 +154,49 @@ runs:
         fi
 
         # The readable report goes to the log; JSON and Markdown go to files.
-        "${cli[@]}" "${args[@]}" 2> "$errors"
-        code=$?
+        # Run the CLI in the background so a cancelled or timed-out job's SIGINT
+        # and SIGTERM reach this script: pass them on to the CLI, and replace the
+        # running comment right away, before the runner kills the step.
+        "${cli[@]}" "${args[@]}" 2> "$errors" &
+        cli_pid=$!
+        cancelled=""
+        trap 'cancelled=1; kill -INT "$cli_pid" 2>/dev/null' INT
+        trap 'cancelled=1; kill -TERM "$cli_pid" 2>/dev/null' TERM
+        cancel_reported=""
+        while :; do
+          wait "$cli_pid"
+          code=$?
+          if [ -n "$cancelled" ] && [ -z "$cancel_reported" ]; then
+            cancel_reported=1
+            # Don't leave the pull request saying the checks are still running.
+            [ -z "$comment_id" ] ||
+              status_comment "⚪ Publishing checks cancelled. The job was cancelled or timed out before the checks finished."
+          fi
+          # A trapped signal ends `wait` early; keep waiting until the CLI has exited.
+          kill -0 "$cli_pid" 2>/dev/null || break
+        done
+        trap - INT TERM
         cat "$errors" >&2
+        if [ -n "$cancelled" ]; then
+          echo "::warning title=Publishing checklist::The job was cancelled before the publishing checks finished."
+          [ "$code" -eq 0 ] && code=130
+          exit "$code"
+        fi
 
         run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
-        server_label="$MANUFACT_SERVER"
-        marker="<!-- manufact-publishing-checks:$MANUFACT_SERVER -->"
 
         if [ -z "$run_id" ]; then
-          # No result (bad token, unknown server, usage error...): use the CLI's error line.
+          # No result (bad API key, unknown server, usage error...): use the CLI's error line.
           message=$(grep -v -e '^Running checklist$' -e '^$' "$errors" | head -n 1)
           message="${message:-mcp-use checklist run exited with code $code}"
           echo "::error title=Publishing checklist::$message"
           {
             echo "$marker"
-            echo "## ❌ Publishing checklist couldn't run"
+            echo "## Publishing checks"
             echo
-            echo "Server \`$server_label\`"
+            echo "$commit_line"
+            echo
+            echo "❌ Publishing checks couldn't run"
             echo
             echo '```text'
             grep -v '^Running checklist$' "$errors"
@@ -132,13 +213,11 @@ runs:
             echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
           } >> "$GITHUB_OUTPUT"
 
-          # The CLI renders the report like the dashboard; add our comment marker.
-          # Name the commit that was checked: the deployment's, else the pull request head's, else the workflow's.
-          commit=$(jq -r '.deployment.sha // .pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
-          commit="${commit:-$GITHUB_SHA}"
-          { echo "$marker"; awk -v line="Commit \`${commit:0:7}\`" '
+          # The CLI renders the report like the dashboard; add our comment marker
+          # and the commit, under the heading (or at the end if there's none).
+          { echo "$marker"; awk -v line="$commit_line" '
               { print }
-              /^Checked `/ && !done { print ""; print line; done = 1 }
+              /^## Publishing checks/ && !done { print ""; print line; done = 1 }
               END { if (!done) { print ""; print line } }
             ' "$markdown.body"; } > "$markdown"
           if [ "$code" -ne 0 ]; then
@@ -147,25 +226,6 @@ runs:
         fi
 
         tail -n +2 "$markdown" >> "$GITHUB_STEP_SUMMARY"
+        comment_on_pr "$markdown"
 
-        # Post or update one comment per server on the pull request.
-        pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
-        # After a deployment there is no pull request in the event: find the open one for its commit.
-        if [ -z "$pr" ] && [ "$GITHUB_EVENT_NAME" = "deployment_status" ]; then
-          sha=$(jq -r '.deployment.sha // empty' "$GITHUB_EVENT_PATH")
-          if [ -n "$sha" ]; then
-            pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null)
-          fi
-        fi
-        if [ "$INPUT_COMMENT" = "true" ] && [ -n "$pr" ]; then
-          comments="repos/$GITHUB_REPOSITORY/issues"
-          existing=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
-          # Update our earlier comment; post a new one if there's none, or if the
-          # marked comment isn't ours to edit.
-          if ! { [ -n "$existing" ] && gh api -X PATCH "$comments/comments/$existing" -F body=@"$markdown" > /dev/null; } &&
-             ! gh api -X POST "$comments/$pr/comments" -F body=@"$markdown" > /dev/null; then
-            echo "::warning title=Publishing checklist::Couldn't comment on the pull request. Grant the job 'pull-requests: write', or set comment: false."
-          fi
-        fi
-
-        exit $code
+        exit "$code"
