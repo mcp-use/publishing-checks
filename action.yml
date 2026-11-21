@@ -133,18 +133,16 @@ runs:
           fi
         }
 
-        # Show that checks are running until the report replaces it.
-        if [ -n "$pr" ]; then
-          {
-            echo "$marker"
-            echo "## Publishing checks"
-            echo
-            echo "$commit_line"
-            echo
-            echo "⏳ Publishing checks running. [View workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
-          } > "$markdown.running"
+        # A short comment while there's no report yet: the heading, the commit, a status line and the run link.
+        run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        status_comment() {
+          [ -n "$pr" ] || return 0
+          printf '%s\n## Publishing checks\n\n%s\n\n%s\n\n[View the workflow run](%s)\n' "$marker" "$commit_line" "$1" "$run_url" > "$markdown.running"
           comment_on_pr "$markdown.running"
-        fi
+        }
+
+        # Show on the pull request that the checks are running; the report replaces it.
+        status_comment "⏳ Publishing checks running. The report replaces this comment when they finish."
 
         args=(checklist run --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result" --markdown-file "$markdown.body")
         # External URL servers have no branches: url and profile replace branch.
@@ -156,9 +154,34 @@ runs:
         fi
 
         # The readable report goes to the log; JSON and Markdown go to files.
-        "${cli[@]}" "${args[@]}" 2> "$errors"
-        code=$?
+        # Run the CLI in the background so a cancelled or timed-out job's SIGINT
+        # and SIGTERM reach this script: pass them on to the CLI, and replace the
+        # running comment right away, before the runner kills the step.
+        "${cli[@]}" "${args[@]}" 2> "$errors" &
+        cli_pid=$!
+        cancelled=""
+        trap 'cancelled=1; kill -INT "$cli_pid" 2>/dev/null' INT
+        trap 'cancelled=1; kill -TERM "$cli_pid" 2>/dev/null' TERM
+        cancel_reported=""
+        while :; do
+          wait "$cli_pid"
+          code=$?
+          if [ -n "$cancelled" ] && [ -z "$cancel_reported" ]; then
+            cancel_reported=1
+            # Don't leave the pull request saying the checks are still running.
+            [ -z "$comment_id" ] ||
+              status_comment "⚪ Publishing checks cancelled. The job was cancelled or timed out before the checks finished."
+          fi
+          # A trapped signal ends `wait` early; keep waiting until the CLI has exited.
+          kill -0 "$cli_pid" 2>/dev/null || break
+        done
+        trap - INT TERM
         cat "$errors" >&2
+        if [ -n "$cancelled" ]; then
+          echo "::warning title=Publishing checklist::The job was cancelled before the publishing checks finished."
+          [ "$code" -eq 0 ] && code=130
+          exit "$code"
+        fi
 
         run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
 
@@ -169,9 +192,11 @@ runs:
           echo "::error title=Publishing checklist::$message"
           {
             echo "$marker"
-            echo "## ❌ Publishing checklist couldn't run"
+            echo "## Publishing checks"
             echo
-            echo "Server \`$MANUFACT_SERVER\`"
+            echo "$commit_line"
+            echo
+            echo "❌ Publishing checks couldn't run"
             echo
             echo '```text'
             grep -v '^Running checklist$' "$errors"
@@ -203,4 +228,4 @@ runs:
         tail -n +2 "$markdown" >> "$GITHUB_STEP_SUMMARY"
         comment_on_pr "$markdown"
 
-        exit $code
+        exit "$code"

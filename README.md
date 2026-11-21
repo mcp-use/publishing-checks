@@ -11,7 +11,7 @@ This action allows you to run Manufact's MCP Publishing Checks in CI/CD.
 1. **Create a Manufact account.** [Sign up at manufact.com](https://manufact.com/signup).
 2. **Deploy or connect your MCP server.** [Deploy it from GitHub](https://docs.manufact.com/dashboard/quickstart), or [connect a server you host elsewhere](https://docs.manufact.com/dashboard/connect-existing-server). Note its [server ID](#find-your-server-id).
 3. **Create an API key.** In the Manufact dashboard, open **API Keys** and click **Create key** ([how to create an API key](https://docs.manufact.com/dashboard/api-keys)).
-4. **Store the key as a repository secret.** In your GitHub repository, go to **Settings > Secrets and variables > Actions** and add it as `MANUFACT_TOKEN`.
+4. **Store the key as a repository secret.** In your GitHub repository, go to **Settings > Secrets and variables > Actions** and add it as `MANUFACT_API_KEY`.
 
 ## Usage
 
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: mcp-use/publishing-checks@v1
         with:
-          api-key: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_API_KEY }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
 ```
 
@@ -41,7 +41,7 @@ On pull requests, the checklist runs against the deployment for the pull request
 ```yaml
       - uses: mcp-use/publishing-checks@v1
         with:
-          api-key: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_API_KEY }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: warnings
 ```
@@ -52,7 +52,7 @@ On pull requests, the checklist runs against the deployment for the pull request
       - id: checklist
         uses: mcp-use/publishing-checks@v1
         with:
-          api-key: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_API_KEY }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           fail-on: none
       - if: steps.checklist.outputs.ready-for-chatgpt == 'true'
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: mcp-use/publishing-checks@v1
         with:
-          api-key: ${{ secrets.MANUFACT_TOKEN }}
+          api-key: ${{ secrets.MANUFACT_API_KEY }}
           server: e3b0c442-98fc-4c14-9afb-f4c8996fb924
           url: ${{ github.event.deployment_status.environment_url }}/mcp
           profile: 6f1c2a7e-0b5d-4e8a-9c3f-2d4b6a8e1f90 # optional
@@ -138,7 +138,7 @@ Policy concerns count as warnings, as on the dashboard: they may need store revi
 
 On `pull_request` events, and on `deployment_status` events for a commit with an open pull request, the action comments on the pull request as soon as the checks start, with the commit being checked and a link to the workflow run. When the checks finish, it replaces that with the report, laid out like the checklist page in the Manufact dashboard: the checks score, the last run's results and client readiness, the policy-review banner, and one section per category. Sections with issues start expanded; failing checks show their severity, the affected clients, a policy link where there is one, and how to fix them.
 
-There's one comment per server. Later runs update it rather than adding a new comment, so it shows the running state again while they run. If the checklist can't run at all (for example, the API key is wrong), the comment shows the error instead.
+There's one comment per server. Later runs update it rather than adding a new comment, so it shows the running state again while they run. If the checklist can't run at all (for example, the API key is wrong), the comment shows the error instead. If the job is cancelled or times out while the checks run, the comment says they were cancelled.
 
 Commenting needs the job to have `pull-requests: write`. Without it, the action logs a warning and carries on; the checklist result is unaffected. Pull requests from forks get a read-only token, so there's no comment for those.
 
