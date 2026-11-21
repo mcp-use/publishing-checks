@@ -29,7 +29,7 @@ inputs:
     required: false
     default: failed
   comment:
-    description: "On pull requests, post the full report as a comment and update it on later runs. Needs `pull-requests: write`."
+    description: "On pull requests, comment that checks are running, then replace it with the full report. Later runs update the same comment. Needs `pull-requests: write`."
     required: false
     default: "true"
   github-token:
@@ -88,6 +88,64 @@ runs:
         errors="$RUNNER_TEMP/mcp-use-checklist.err"
         markdown="$RUNNER_TEMP/mcp-use-checklist.md"
         rm -f "$result" "$markdown.body"
+        marker="<!-- manufact-publishing-checks:$MANUFACT_SERVER -->"
+
+        # Name the commit that was checked: the deployment's, else the pull request head's, else the workflow's.
+        commit=$(jq -r '.deployment.sha // .pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+        commit="${commit:-$GITHUB_SHA}"
+        commit_line="Commit: \`${commit:0:7}\`"
+
+        # Find the pull request to comment on.
+        pr=""
+        if [ "$INPUT_COMMENT" = "true" ]; then
+          pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
+          # After a deployment there is no pull request in the event: find the open one for its commit.
+          if [ -z "$pr" ] && [ "$GITHUB_EVENT_NAME" = "deployment_status" ]; then
+            sha=$(jq -r '.deployment.sha // empty' "$GITHUB_EVENT_PATH")
+            if [ -n "$sha" ]; then
+              pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null)
+            fi
+          fi
+        fi
+
+        # Post or update one comment per server on the pull request. Failures only warn.
+        comments="repos/$GITHUB_REPOSITORY/issues"
+        comment_id=""
+        comment_warned=""
+        comment_on_pr() {
+          local body=$1 id
+          [ -n "$pr" ] || return 0
+          if [ -z "$comment_id" ]; then
+            comment_id=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
+          fi
+          # Update our earlier comment; post a new one if there's none, or if the
+          # marked comment isn't ours to edit.
+          if [ -n "$comment_id" ] && gh api -X PATCH "$comments/comments/$comment_id" -F body=@"$body" > /dev/null; then
+            return 0
+          fi
+          if id=$(gh api -X POST "$comments/$pr/comments" -F body=@"$body" --jq '.id') && [ -n "$id" ]; then
+            comment_id=$id
+            return 0
+          fi
+          if [ -z "$comment_warned" ]; then
+            echo "::warning title=Publishing checklist::Couldn't comment on the pull request. Grant the job 'pull-requests: write', or set comment: false."
+            comment_warned=1
+          fi
+        }
+
+        # Show that checks are running until the report replaces it.
+        if [ -n "$pr" ]; then
+          {
+            echo "$marker"
+            echo "## Publishing checks"
+            echo
+            echo "$commit_line"
+            echo
+            echo "⏳ Publishing checks running. [View workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > "$markdown.running"
+          comment_on_pr "$markdown.running"
+        fi
+
         args=(checklist run --fail-on "$INPUT_FAIL_ON" --verbose --json-file "$result" --markdown-file "$markdown.body")
         # External URL servers have no branches: url and profile replace branch.
         if [ -n "$INPUT_URL" ] || [ -n "$INPUT_PROFILE" ]; then
@@ -103,8 +161,6 @@ runs:
         cat "$errors" >&2
 
         run_id=$(jq -r '.id // empty' "$result" 2>/dev/null || true)
-        server_label="$MANUFACT_SERVER"
-        marker="<!-- manufact-publishing-checks:$MANUFACT_SERVER -->"
 
         if [ -z "$run_id" ]; then
           # No result (bad API key, unknown server, usage error...): use the CLI's error line.
@@ -115,7 +171,7 @@ runs:
             echo "$marker"
             echo "## ❌ Publishing checklist couldn't run"
             echo
-            echo "Server \`$server_label\`"
+            echo "Server \`$MANUFACT_SERVER\`"
             echo
             echo '```text'
             grep -v '^Running checklist$' "$errors"
@@ -132,13 +188,11 @@ runs:
             echo "dashboard-url=$(jq -r '.dashboardUrl // empty' "$result")"
           } >> "$GITHUB_OUTPUT"
 
-          # The CLI renders the report like the dashboard; add our comment marker.
-          # Name the commit that was checked: the deployment's, else the pull request head's, else the workflow's.
-          commit=$(jq -r '.deployment.sha // .pull_request.head.sha // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
-          commit="${commit:-$GITHUB_SHA}"
-          { echo "$marker"; awk -v line="Commit \`${commit:0:7}\`" '
+          # The CLI renders the report like the dashboard; add our comment marker
+          # and the commit, under the heading (or at the end if there's none).
+          { echo "$marker"; awk -v line="$commit_line" '
               { print }
-              /^Checked `/ && !done { print ""; print line; done = 1 }
+              /^## Publishing checks/ && !done { print ""; print line; done = 1 }
               END { if (!done) { print ""; print line } }
             ' "$markdown.body"; } > "$markdown"
           if [ "$code" -ne 0 ]; then
@@ -147,25 +201,6 @@ runs:
         fi
 
         tail -n +2 "$markdown" >> "$GITHUB_STEP_SUMMARY"
-
-        # Post or update one comment per server on the pull request.
-        pr=$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)
-        # After a deployment there is no pull request in the event: find the open one for its commit.
-        if [ -z "$pr" ] && [ "$GITHUB_EVENT_NAME" = "deployment_status" ]; then
-          sha=$(jq -r '.deployment.sha // empty' "$GITHUB_EVENT_PATH")
-          if [ -n "$sha" ]; then
-            pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '[.[] | select(.state == "open")][0].number // empty' 2>/dev/null)
-          fi
-        fi
-        if [ "$INPUT_COMMENT" = "true" ] && [ -n "$pr" ]; then
-          comments="repos/$GITHUB_REPOSITORY/issues"
-          existing=$(gh api --paginate "$comments/$pr/comments" --jq ".[] | select(.body | startswith(\"$marker\")) | .id" 2>/dev/null | head -n 1)
-          # Update our earlier comment; post a new one if there's none, or if the
-          # marked comment isn't ours to edit.
-          if ! { [ -n "$existing" ] && gh api -X PATCH "$comments/comments/$existing" -F body=@"$markdown" > /dev/null; } &&
-             ! gh api -X POST "$comments/$pr/comments" -F body=@"$markdown" > /dev/null; then
-            echo "::warning title=Publishing checklist::Couldn't comment on the pull request. Grant the job 'pull-requests: write', or set comment: false."
-          fi
-        fi
+        comment_on_pr "$markdown"
 
         exit $code
